@@ -17,12 +17,11 @@ module Data.Conduit.Cereal ( GetException
                            , conduitPut
                            ) where
 
+import           Conduit
 import           Control.Exception.Base
 import           Control.Monad.Trans.Class (MonadTrans, lift)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.Conduit as C
-import qualified Data.Conduit.List as CL
 import           Data.Serialize hiding (get, put)
 import           Data.Typeable
 
@@ -34,7 +33,7 @@ data GetException = GetException String
 instance Exception GetException
 
 -- | Run a 'Get' repeatedly on the input stream, producing an output stream of whatever the 'Get' outputs.
-conduitGet :: C.MonadThrow m => Get o -> C.Conduit BS.ByteString m o
+conduitGet :: MonadThrow m => Get o -> Conduit BS.ByteString m o
 conduitGet = mkConduitGet errorHandler
   where errorHandler msg = pipeError $ GetException msg
 
@@ -42,21 +41,21 @@ conduitGet = mkConduitGet errorHandler
 --
 -- If 'Get' succeed it will return the data read and unconsumed part of the input stream.
 -- If the 'Get' fails due to deserialization error or early termination of the input stream it raise an error.
-sinkGet :: C.MonadThrow m => Get r -> C.Consumer BS.ByteString m r
+sinkGet :: MonadThrow m => Get r -> Consumer BS.ByteString m r
 sinkGet = mkSinkGet errorHandler terminationHandler
   where errorHandler msg = pipeError $ GetException msg
         terminationHandler f = case f BS.empty of
           Fail msg _ -> pipeError $ GetException msg
-          Done r lo -> C.leftover lo >> return r
+          Done r lo -> leftover lo >> return r
           Partial _ -> pipeError $ GetException "Failed reading: Internal error: unexpected Partial."
 
-pipeError :: (C.MonadThrow m, MonadTrans t, Exception e) => e -> t m a
-pipeError e = lift $ C.monadThrow e
+pipeError :: (MonadThrow m, MonadTrans t, Exception e) => e -> t m a
+pipeError e = lift $ throwM e
 
 -- | Convert a 'Put' into a 'Source'. Runs in constant memory.
-sourcePut :: Monad m => Put -> C.Producer m BS.ByteString
-sourcePut put = CL.sourceList $ LBS.toChunks $ runPutLazy put
+sourcePut :: Monad m => Put -> Producer m BS.ByteString
+sourcePut put = sourceLazy $ runPutLazy put
 
 -- | Run a 'Putter' repeatedly on the input stream, producing a concatenated 'ByteString' stream.
-conduitPut :: Monad m => Putter a -> C.Conduit a m BS.ByteString
-conduitPut p = CL.map $ runPut . p
+conduitPut :: Monad m => Putter a -> Conduit a m BS.ByteString
+conduitPut p = mapC $ runPut . p
